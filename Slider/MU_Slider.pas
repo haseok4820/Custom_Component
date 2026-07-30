@@ -3,54 +3,67 @@ unit MU_Slider;
 interface
 
 uses
-  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes, Vcl.Controls, Vcl.Graphics;
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes,
+  Vcl.Controls, Vcl.Graphics;
 
 type
   TMUSlider = class(TCustomControl)
   private
+    // 기본 슬라이더 속성
     FPosition: Integer;
     FMin: Integer;
     FMax: Integer;
-    FColor_BackGround: TColor;
+    FThumbRadius: Integer;
+    FColor_Background: TColor;
     FColor_Bar: TColor;
     FColor_Thumb: TColor;
-    FThumbRadius: Integer;
 
+    // Caption 관련 속성
     FCaption_Left: string;
     FCaption_Right: string;
     FCaption_Thumb: string;
-    FShowCaptions: Boolean;
-    FCaptionFont: TFont;
-    FCaptionColor: TColor;
+    FCaption_Show: Boolean;
+    FCaption_Font: TFont;
+    FCaption_Color: TColor;
+
+    // 내부 메서드
+    procedure SetPosition(Value: Integer);
+    procedure UpdateCaption(var Field: string; const Value: string);
+    function GetThumbX: Integer;
+    function GetThumbRect(BarY: Integer): TRect;
+    function GetBarRect(BarY: Integer): TRect;
+    procedure DrawCaption(const AText: string; X, Y: Integer);
+
+    // Setter
     procedure SetMin(Value: Integer);
     procedure SetMax(Value: Integer);
-    procedure SetPosition(Value: Integer);
-
     procedure SetColor_Background(Value: TColor);
     procedure SetColor_Bar(Value: TColor);
     procedure SetColor_Thumb(Value: TColor);
-    procedure SetBackgroundColor(const Value: TColor);
-    procedure SetBarColor(const Value: TColor);
-    procedure SetThumbColor(const Value: TColor);
-
     procedure SetCaption_Left(const Value: string);
     procedure SetCaption_Right(const Value: string);
     procedure SetCaption_Thumb(const Value: string);
-    procedure SetShowCaptions(Value: Boolean);
-    procedure SetCaptionFont(Value: TFont);
-    procedure SetCaptionColor(Value: TColor);
+    procedure SetCaption_Show(Value: Boolean);
+    procedure SetCaption_Font(Value: TFont);
+    procedure SetCaption_Color(Value: TColor);
 
     procedure WMEraseBkgnd(var Message: TWMEraseBkgnd); message WM_ERASEBKGND;
-    function GetRect_Thumb(BarY: Integer): TRect;
-    function GetRect_Bar(BarY: Integer): TRect;
-  protected
-    procedure Paint; override;
+
+    // Event
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+  protected
+    procedure Paint; override;
   public
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+
+    // Caption 일괄 처리 메서드
+    procedure SetCaptions(const ALeft, ARight, AThumb: string; AShow: Boolean = True);
+
   published
-    // 기본 제공
+    // 기본 레이아웃 속성
     property Align;
     property Anchors;
     property Constraints;
@@ -59,21 +72,27 @@ type
     property TabOrder;
     property TabStop;
 
-    // 추가
+    // 슬라이더 속성
     property Position: Integer read FPosition write SetPosition;
     property Min: Integer read FMin write SetMin;
     property Max: Integer read FMax write SetMax;
-    property Color_BackGround: TColor read FColor_BackGround write SetBackgroundColor;
-    property Color_Bar: TColor read FColor_Bar write SetBarColor;
-    property Color_Thumb: TColor read FColor_Thumb write SetThumbColor;
     property ThumbRadius: Integer read FThumbRadius write FThumbRadius;
+    property BackgroundColor: TColor read FColor_Background write SetColor_Background;
+    property BarColor: TColor read FColor_Bar write SetColor_Bar;
+    property ThumbColor: TColor read FColor_Thumb write SetColor_Thumb;
 
+    // Caption 속성
     property Caption_Left: string read FCaption_Left write SetCaption_Left;
     property Caption_Right: string read FCaption_Right write SetCaption_Right;
     property Caption_Thumb: string read FCaption_Thumb write SetCaption_Thumb;
-    property ShowCaptions: Boolean read FShowCaptions write SetShowCaptions;
-    property CaptionFont: TFont read FCaptionFont write SetCaptionFont;
-    property CaptionColor: TColor read FCaptionColor write SetCaptionColor;
+    property Caption_Show: Boolean read FCaption_Show write SetCaption_Show;
+    property Caption_Font: TFont read FCaption_Font write SetCaption_Font;
+    property Caption_Color: TColor read FCaption_Color write SetCaption_Color;
+
+    // Events
+    property OnMouseDown;
+    property OnMouseMove;
+    property OnMouseUp;
   end;
 
 procedure Register;
@@ -82,7 +101,7 @@ implementation
 
 procedure Register;
 begin
-  RegisterComponents('MS_Control', [TMUSlider]);
+  RegisterComponents('MU_Control', [TMUSlider]);
 end;
 
 { TMUSlider }
@@ -91,210 +110,63 @@ constructor TMUSlider.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   Width := 200;
-  Height := 30;
+  Height := 50;
   FMin := 0;
   FMax := 100;
   FPosition := 50;
-  FColor_BackGround := clBlack;
-  FColor_Bar := clGray;
-  FColor_Thumb := clWhite;
   FThumbRadius := 8;
+  FColor_Background := $00440000;
+  FColor_Bar := $009A5210;
+  FColor_Thumb := clWhite;
 
   FCaption_Left := 'Min';
   FCaption_Right := 'Max';
   FCaption_Thumb := '';
-  FShowCaptions := False;
-  FCaptionFont := TFont.Create;
-  FCaptionFont.Name := 'Tahoma';
-  FCaptionFont.Size := 8;
-  FCaptionColor := clWhite;
+  FCaption_Show := True;
+
+  FCaption_Font := TFont.Create;
+  FCaption_Font.Name := 'Tahoma';
+  FCaption_Font.Size := 8;
+  FCaption_Color := clWhite;
 
   DoubleBuffered := True;
 end;
 
-function TMUSlider.GetRect_Bar(BarY: Integer): TRect;
+destructor TMUSlider.Destroy;
 begin
-  Result := Rect(FThumbRadius, BarY - 5, (FPosition - FMin) * (Width - 2 * FThumbRadius) div (FMax - FMin) + FThumbRadius, BarY + 5);
+  FCaption_Font.Free;
+  inherited;
 end;
 
-function TMUSlider.GetRect_Thumb(BarY: Integer): TRect;
+procedure TMUSlider.WMEraseBkgnd(var Message: TWMEraseBkgnd);
+begin
+  Message.Result := 1;
+end;
+
+function TMUSlider.GetThumbX: Integer;
+begin
+  Result := (FPosition - FMin) * (Width - 2 * FThumbRadius) div (FMax - FMin) + FThumbRadius;
+end;
+
+function TMUSlider.GetThumbRect(BarY: Integer): TRect;
 var
   ThumbX: Integer;
 begin
-  ThumbX := (FPosition - FMin) * (Width - 2 * FThumbRadius) div (FMax - FMin) + FThumbRadius;
+  ThumbX := GetThumbX;
   Result := Rect(ThumbX - FThumbRadius, BarY - FThumbRadius, ThumbX + FThumbRadius, BarY + FThumbRadius);
 end;
 
-procedure TMUSlider.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-var
-  NewPos: Integer;
-  EffectiveWidth: Integer;
+function TMUSlider.GetBarRect(BarY: Integer): TRect;
 begin
-  EffectiveWidth := Width - 2 * FThumbRadius; // Thumb이 움직일 수 있는 실제 영역
-  NewPos := ((X - FThumbRadius) * (FMax - FMin)) div EffectiveWidth + FMin;
-  SetPosition(NewPos);
+  Result := Rect(FThumbRadius, BarY - 5, GetThumbX, BarY + 5);
 end;
 
-procedure TMUSlider.MouseMove(Shift: TShiftState; X, Y: Integer);
-var
-  NewPos: Integer;
-  EffectiveWidth: Integer;
+procedure TMUSlider.UpdateCaption(var Field: string; const Value: string);
 begin
-  inherited;
-  if ssLeft in Shift then
+  if Field <> Value then
   begin
-    EffectiveWidth := Width - 2 * FThumbRadius;
-    NewPos := ((X - FThumbRadius) * (FMax - FMin)) div EffectiveWidth + FMin;
-    SetPosition(NewPos);
-  end;
-end;
-
-procedure TMUSlider.Paint;
-var
-  ThumbRect, BarRect: TRect;
-  ThumbX, BarY: Integer;
-begin
-  // 배경
-  Canvas.Brush.Color := FColor_BackGround;
-  Canvas.RoundRect(ClientRect.Left, ClientRect.Top, ClientRect.Right, ClientRect.Bottom, 15, 15); // 마지막 두 인자가 둥근 정도(Width, Height)
-
-  if FShowCaptions then
-    BarY := Height div 2 - 10
-  else
-    BarY := Height div 2;
-
-  // 진행 바
-  BarRect := GetRect_Bar(BarY);
-  Canvas.Brush.Color := FColor_Bar;
-  Canvas.FillRect(BarRect);
-  {
-    Canvas.Brush.Color := FColor_Bar;
-    Canvas.FillRect(Rect(FThumbRadius, Height div 2 - 5, (FPosition - FMin) * (Width - 2 * FThumbRadius) div (FMax - FMin) + FThumbRadius,
-    Height div 2 + 5));
-  }
-
-  // Thumb 위치
-  ThumbRect := GetRect_Thumb(BarY);
-  Canvas.Brush.Color := FColor_Thumb;
-  Canvas.Ellipse(ThumbRect);
-
-  {
-    ThumbX := (FPosition - FMin) * (Width - 2 * FThumbRadius) div (FMax - FMin) + FThumbRadius;
-    Canvas.Brush.Color := FColor_Thumb;
-    Canvas.Ellipse(ThumbX - FThumbRadius, Height div 2 - FThumbRadius, ThumbX + FThumbRadius, Height div 2 + FThumbRadius);
-  }
-  // 캡션 표시
-  if FShowCaptions then
-  begin
-    Canvas.Brush.Style := bsClear;
-    Canvas.Font.Assign(FCaptionFont);
-    Canvas.Font.Color := FCaptionColor;
-
-    // Left Caption
-    if FCaption_Left <> '' then
-      Canvas.TextOut(FThumbRadius, ThumbRect.Bottom + 2, FCaption_Left);
-
-    // Right Caption
-    if FCaption_Right <> '' then
-      Canvas.TextOut(Width - Canvas.TextWidth(FCaption_Right) - FThumbRadius, ThumbRect.Bottom + 2, FCaption_Right);
-
-    // Thumb Caption
-    if FCaption_Thumb <> '' then
-      Canvas.TextOut(ThumbRect.Left + (ThumbRect.Width div 2) - (Canvas.TextWidth(FCaption_Thumb) div 2), ThumbRect.Bottom + 2,
-        FCaption_Thumb);
-  end;
-end;
-
-procedure TMUSlider.SetBackgroundColor(const Value: TColor);
-begin
-  FColor_BackGround := Value;
-end;
-
-procedure TMUSlider.SetBarColor(const Value: TColor);
-begin
-  FColor_Bar := Value;
-end;
-
-procedure TMUSlider.SetCaptionColor(Value: TColor);
-begin
-  FCaptionColor := Value;
-  Invalidate;
-end;
-
-procedure TMUSlider.SetCaptionFont(Value: TFont);
-begin
-  FCaptionFont := Value;
-  Invalidate;
-end;
-
-procedure TMUSlider.SetCaption_Left(const Value: string);
-begin
-  FCaption_Left := Value;
-  Invalidate;
-
-end;
-
-procedure TMUSlider.SetCaption_Right(const Value: string);
-begin
-
-  FCaption_Right := Value;
-  Invalidate;
-end;
-
-procedure TMUSlider.SetCaption_Thumb(const Value: string);
-begin
-
-  FCaption_Thumb := Value;
-  Invalidate;
-end;
-
-procedure TMUSlider.SetColor_Background(Value: TColor);
-begin
-  if FColor_BackGround <> Value then
-  begin
-    FColor_BackGround := Value;
+    Field := Value;
     Invalidate;
-  end;
-end;
-
-procedure TMUSlider.SetColor_Bar(Value: TColor);
-begin
-  if FColor_Bar <> Value then
-  begin
-    FColor_Bar := Value;
-    Invalidate;
-  end;
-end;
-
-procedure TMUSlider.SetColor_Thumb(Value: TColor);
-begin
-  if FColor_Thumb <> Value then
-  begin
-    FColor_Thumb := Value;
-    Invalidate;
-  end;
-end;
-
-procedure TMUSlider.SetMax(Value: Integer);
-begin
-  if Value <> FMax then
-  begin
-    FMax := Value; // Max가 바뀌면 Position이 최대값보다 크지 않도록 보정
-    if FPosition > FMax then
-      FPosition := FMax;
-    Invalidate; // 다시 그리기
-  end;
-
-end;
-
-procedure TMUSlider.SetMin(Value: Integer);
-begin
-  if Value <> FMin then
-  begin
-    FMin := Value; // Min이 바뀌면 Position이 최소값보다 작지 않도록 보정
-    if FPosition < FMin then
-      FPosition := FMin;
-    Invalidate; // 다시 그리기
   end;
 end;
 
@@ -311,20 +183,162 @@ begin
   end;
 end;
 
-procedure TMUSlider.SetShowCaptions(Value: Boolean);
+procedure TMUSlider.SetMin(Value: Integer);
 begin
-  FShowCaptions := Value;
+  FMin := Value;
+  if FPosition < FMin then
+    FPosition := FMin;
   Invalidate;
 end;
 
-procedure TMUSlider.SetThumbColor(const Value: TColor);
+procedure TMUSlider.SetMax(Value: Integer);
 begin
-  FColor_Thumb := Value;
+  FMax := Value;
+  if FPosition > FMax then
+    FPosition := FMax;
+  Invalidate;
 end;
 
-procedure TMUSlider.WMEraseBkgnd(var Message: TWMEraseBkgnd);
+procedure TMUSlider.SetColor_Background(Value: TColor);
 begin
+  FColor_Background := Value;
+  Invalidate;
+end;
 
+procedure TMUSlider.SetColor_Bar(Value: TColor);
+begin
+  FColor_Bar := Value;
+  Invalidate;
+end;
+
+procedure TMUSlider.SetColor_Thumb(Value: TColor);
+begin
+  FColor_Thumb := Value;
+  Invalidate;
+end;
+
+procedure TMUSlider.SetCaption_Left(const Value: string);
+begin
+  UpdateCaption(FCaption_Left, Value);
+end;
+
+procedure TMUSlider.SetCaption_Right(const Value: string);
+begin
+  UpdateCaption(FCaption_Right, Value);
+end;
+
+procedure TMUSlider.SetCaption_Thumb(const Value: string);
+begin
+  UpdateCaption(FCaption_Thumb, Value);
+end;
+
+procedure TMUSlider.SetCaption_Show(Value: Boolean);
+begin
+  if FCaption_Show <> Value then
+  begin
+    FCaption_Show := Value;
+    Invalidate;
+  end;
+end;
+
+procedure TMUSlider.SetCaption_Font(Value: TFont);
+begin
+  FCaption_Font.Assign(Value);
+  Invalidate;
+end;
+
+procedure TMUSlider.SetCaption_Color(Value: TColor);
+begin
+  FCaption_Color := Value;
+  Invalidate;
+end;
+
+procedure TMUSlider.SetCaptions(const ALeft, ARight, AThumb: string; AShow: Boolean);
+begin
+  FCaption_Left := ALeft;
+  FCaption_Right := ARight;
+  FCaption_Thumb := AThumb;
+  FCaption_Show := AShow;
+  Invalidate;
+end;
+
+procedure TMUSlider.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  NewPos, EffectiveWidth: Integer;
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  EffectiveWidth := Width - 2 * FThumbRadius;
+  NewPos := ((X - FThumbRadius) * (FMax - FMin)) div EffectiveWidth + FMin;
+  SetPosition(NewPos);
+end;
+
+procedure TMUSlider.MouseMove(Shift: TShiftState; X, Y: Integer);
+var
+  NewPos, EffectiveWidth: Integer;
+begin
+  if ssLeft in Shift then
+  begin
+    EffectiveWidth := Width - 2 * FThumbRadius;
+    NewPos := ((X - FThumbRadius) * (FMax - FMin)) div EffectiveWidth + FMin;
+    SetPosition(NewPos);
+  end;
+end;
+
+procedure TMUSlider.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  inherited MouseUp(Button, Shift, X, Y);
+end;
+
+procedure TMUSlider.DrawCaption(const AText: string; X, Y: Integer);
+begin
+  if AText = '' then
+    Exit;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Assign(FCaption_Font);
+  Canvas.Font.Color := FCaption_Color;
+  Canvas.TextOut(X, Y, AText);
+end;
+
+procedure TMUSlider.Paint;
+var
+  ThumbRect, BarRect: TRect;
+  ThumbX, BarY: Integer;
+begin
+  // 배경
+  Canvas.Brush.Color := FColor_Background;
+  Canvas.RoundRect(ClientRect.Left, ClientRect.Top, ClientRect.Right, ClientRect.Bottom, 15, 15);
+
+  if FCaption_Show then
+    BarY := Height div 2 - 10
+  else
+    BarY := Height div 2;
+
+  // 진행 바
+  BarRect := GetBarRect(BarY);
+  Canvas.Brush.Color := FColor_Bar;
+  Canvas.RoundRect(BarRect.Left, BarRect.Top, BarRect.Right, BarRect.Bottom, 10, 10);
+
+  // Thumb
+  ThumbRect := GetThumbRect(BarY);
+  Canvas.Brush.Color := FColor_Thumb;
+  Canvas.Ellipse(ThumbRect);
+
+  // 캡션 표시
+  if FCaption_Show then
+  begin
+    Canvas.Brush.Style := bsClear;
+    Canvas.Font.Assign(FCaption_Font);
+    Canvas.Font.Color := FCaption_Color;
+
+    // Left Caption
+    DrawCaption(FCaption_Left, FThumbRadius, ThumbRect.Bottom + 2);
+
+    // Right Caption
+    DrawCaption(FCaption_Right, Width - Canvas.TextWidth(FCaption_Right) - FThumbRadius, ThumbRect.Bottom + 2);
+
+    // Thumb Caption
+    DrawCaption(FCaption_Thumb, ThumbRect.Left + (ThumbRect.Width div 2) - (Canvas.TextWidth(FCaption_Thumb) div 2), ThumbRect.Bottom + 2);
+  end;
 end;
 
 end.
